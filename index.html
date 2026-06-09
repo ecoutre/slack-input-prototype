@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Slack Message Box</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&display=swap" rel="stylesheet" />
+<link rel="preload" href="fonts/lato-semibold.woff2" as="font" type="font/woff2" crossorigin />
+<style>
+  /* Lato Semibold (600, used by mode-menu titles) — not published on Google
+     Fonts, so self-hosted. */
+  @font-face {
+    font-family: 'Lato';
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url('fonts/lato-semibold.woff2') format('woff2');
+  }
+  :root {
+    --c-ink:        #1D1C1D;
+    --c-text-50:    rgba(29, 28, 29, 0.50);
+    --c-text-70:    rgba(29, 28, 29, 0.70);
+    --c-border-13:  rgba(29, 28, 29, 0.13);
+    --c-fill-06:    rgba(29, 28, 29, 0.06);
+    --c-fill-10:    rgba(29, 28, 29, 0.10);
+    --c-focus:      rgba(29, 28, 29, 0.30);
+    --c-mention:    #1264A3;
+    --radius-box:   8px;
+    --radius-btn:   4px;
+    --font: 'Lato', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #F8F8F8;
+    font-family: var(--font);
+    color: var(--c-ink);
+    padding: 40px 20px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  .stage { width: 100%; max-width: 715px; }
+
+  /* ===== Message Box ===== */
+  .message-box {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    background: #FFFFFF;
+    border: 1px solid var(--c-border-13);
+    border-radius: var(--radius-box);
+    transition: border-color 0.12s ease, box-shadow 0.12s ease;
+  }
+  .message-box.is-focused { border-color: var(--c-focus); box-shadow: 0 0 0 1px var(--c-focus); }
+  /* keep the focus ring out of the way while the Slack gradient border is shown */
+  .message-box.slackbot.is-focused { box-shadow: none; border-color: var(--c-border-13); }
+
+  /* ===== Slackbot: a faint Slack-colour gradient rotates around the outline
+     (constant opacity — only the hue position moves), then returns to the
+     normal grey 1px border. Colours taken exactly from the reference SVG. */
+  .sb-ring {
+    position: absolute; inset: 0;             /* 1px ring, sits on the existing border */
+    border-radius: 8px; padding: 1px;
+    overflow: hidden; pointer-events: none; z-index: 1;
+    /* mask cuts out the interior, leaving only the 1px ring (also clips the child) */
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor; mask-composite: exclude;
+    opacity: 0;       /* faded in/out by sbFade; constant while rotating */
+  }
+  /* opacity fades in, holds steady, then fades back to grey over a long, eased
+     tail (subtle, not abrupt). Its own keyframes so the disc can hold its final
+     angle (no snap on cleanup). */
+  .message-box.sb-animate .sb-ring { animation: sbFade 2.3s cubic-bezier(0.33, 0, 0.4, 1) forwards; }
+  @keyframes sbFade {
+    0% { opacity: 0; } 8% { opacity: 0.50; } 38% { opacity: 0.50; }
+    62% { opacity: 0.33; } 82% { opacity: 0.16; } 100% { opacity: 0; }
+  }
+  /* a large conic disc centred on the box, spun by transform — only the hue
+     position travels around the outline; opacity/contrast stay constant.
+     2 colour cycles × 240° ≈ 1.3 trips around. Dynamic ease (fast in, soft out). */
+  .sb-ring-spin {
+    position: absolute; left: 50%; top: 50%;
+    width: 1000px; height: 1000px; margin: -500px 0 0 -500px;
+    background: conic-gradient(
+      #36C4F0, #2EB57D, #EDB22E, #E01E59,
+      #36C4F0, #2EB57D, #EDB22E, #E01E59, #36C4F0);
+  }
+  .message-box.sb-animate .sb-ring-spin { animation: sbSpin 1.5s cubic-bezier(0.32, 0, 0.18, 1) forwards; }
+  @keyframes sbSpin { to { transform: rotate(240deg); } }
+
+  /* editor */
+  .message-text-box { position: relative; display: flex; align-items: flex-start; padding: 8px 12px; }
+  .editor {
+    flex: 1 0 0; min-width: 0; min-height: 22px; outline: none;
+    font-size: 15px; font-weight: 400; line-height: 1.467; color: var(--c-ink);
+    white-space: pre-wrap; word-break: break-word;
+  }
+  /* animated placeholder — two layers cross-fade/slide when switching modes */
+  .placeholder { position: absolute; top: 8px; left: 12px; right: 12px; height: 22px; overflow: hidden; pointer-events: none; }
+  .ph {
+    position: absolute; top: 0; left: 0; white-space: nowrap;
+    font-size: 15px; line-height: 1.467; color: var(--c-text-50);
+    opacity: 0;
+    transition: opacity 0.26s ease, transform 0.26s cubic-bezier(0.2, 0.7, 0.3, 1);
+  }
+  .ph-channel  { transform: translateY(-7px); }   /* hidden: parked above */
+  .ph-slackbot { transform: translateY(7px); }     /* hidden: parked below */
+  .message-box:not(.slackbot) .ph-channel  { opacity: 1; transform: none; }
+  .message-box.slackbot       .ph-slackbot { opacity: 1; transform: none; }
+  .message-box.has-text .ph { opacity: 0; }
+  .mention { color: var(--c-mention); }
+
+  /* footer */
+  .footer {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 4px 2px 6px;
+    border-bottom-left-radius: var(--radius-box); border-bottom-right-radius: var(--radius-box);
+  }
+  .footer-left { display: flex; align-items: center; gap: 2px; }
+  .attach-wrap { display: flex; align-items: center; padding-right: 6px; }
+  .btn-group   { display: flex; align-items: center; gap: 4px; padding: 2px 0; }
+
+  .icon-btn {
+    display: flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; padding: 0;
+    border: none; background: transparent; border-radius: var(--radius-btn);
+    cursor: pointer; transition: background-color 0.1s ease; -webkit-tap-highlight-color: transparent;
+  }
+  .icon-btn img { display: block; width: 28px; height: 28px; pointer-events: none; }
+  .icon-btn:hover  { background: var(--c-fill-06); }
+  .icon-btn:active { background: var(--c-fill-10); }
+  .attach-btn { width: 24px; height: 24px; border-radius: 100px; }
+  .attach-btn img { width: 24px; height: 24px; }
+
+  .divider { display: flex; align-items: center; padding: 2px 4px; }
+  .divider span { display: block; width: 1px; height: 20px; background: var(--c-border-13); }
+
+  /* slackbot toggle icon (grey <-> colorful) */
+  #btnSlackbot { position: relative; }
+  .message-box:not(.slackbot) .app-color { display: none; }
+  .message-box.slackbot .app-grey { display: none; }
+  /* one-shot animation that plays over the static colourful icon on activation.
+     The asset's coloured shape only fills ~83% of its frame (white padding around it),
+     so we scale it up to 21.6px (coloured shape => 18px), centre it on the icon,
+     and clip the 1.8px white margin so it matches the static icon's 18px footprint. */
+  .app-anim {
+    position: absolute; top: 3.2px; left: 3.2px; width: 21.6px; height: 21.6px;
+    pointer-events: none; opacity: 0;
+    clip-path: inset(1.8px round 3.3px);
+  }
+  .app-anim.playing { opacity: 1; }
+  /* preview the colorful icon on hover, even in channel mode */
+  .message-box:not(.slackbot) #btnSlackbot:hover .app-grey  { display: none; }
+  .message-box:not(.slackbot) #btnSlackbot:hover .app-color { display: block; }
+
+  /* ===== Auto / mode selector (only in slackbot mode) ===== */
+  .mode-wrap { position: relative; display: flex; align-items: center; }
+  .mode-pill {
+    display: flex; align-items: center; gap: 2px;
+    height: 28px; padding: 0 4px 0 8px;
+    border: none; background: transparent; border-radius: 6px; cursor: pointer;
+    font-family: var(--font); font-size: 15px; color: var(--c-text-70);
+    /* collapsed by default; slides + fades + expands in when Slackbot turns on */
+    white-space: nowrap; overflow: hidden;
+    max-width: 0; opacity: 0; transform: translateX(-6px);
+    transition: max-width 0.3s cubic-bezier(0.2, 0.7, 0.3, 1), opacity 0.22s ease,
+                transform 0.3s cubic-bezier(0.2, 0.7, 0.3, 1), background-color 0.1s ease;
+  }
+  .message-box.slackbot .mode-pill { max-width: 120px; opacity: 1; transform: none; }
+  .mode-pill:hover, .mode-pill.open { background: var(--c-fill-06); }
+  .mode-chev { display: block; width: 16px; height: 18px; transition: transform 0.12s ease; pointer-events: none; }
+  .mode-pill.open .mode-chev { transform: rotate(180deg); }
+
+  .mode-menu {
+    position: absolute; top: calc(100% + 8px); left: -8px; width: 304px;
+    background: #FFFFFF; border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.10), 0 0 0 1px rgba(29,28,29,0.13);
+    padding: 8px 0; z-index: 50; display: none; overflow: hidden;
+  }
+  .mode-menu.open { display: block; }
+  .mode-item {
+    display: flex; align-items: center; gap: 8px; width: 100%; height: 54px; padding: 0 16px;
+    border: none; background: transparent; cursor: pointer; text-align: left;
+    font-family: inherit;   /* <button> doesn't inherit the page font by default */
+    transition: background-color 0.1s ease;
+  }
+  .mode-item:hover, .mode-item.is-selected { background: rgba(0, 0, 0, 0.05); }
+  .mode-ic { width: 20px; height: 20px; flex: none; pointer-events: none; }
+  .mode-item > span:last-child { display: flex; flex-direction: column; }
+  .mode-title { display: block; font-size: 15px; font-weight: 600; color: #1D1C1D; line-height: 20px; white-space: nowrap; }
+  .mode-desc  { display: block; font-size: 13px; color: rgba(29, 28, 29, 0.6); line-height: 18px; white-space: nowrap; }
+
+  /* ===== Right-side actions =====
+     The exported send/start frames (Frame 59/60/61) are 36px tall and already
+     include their 4px vertical + 4/2px horizontal margins, so no extra padding. */
+  .footer-right { display: flex; align-items: center; padding: 0; }
+
+  /* visibility logic:
+     empty                -> mic/chevron (audio)
+     has-text + channel   -> green send
+     has-text + slackbot  -> purple Start            */
+  .message-box.has-text .act-audio { display: none; }
+  .message-box:not(.has-text) .act-send { display: none; }
+  .message-box:not(.has-text) .act-start { display: none; }
+  .message-box:not(.slackbot) .act-start { display: none; }
+  .message-box.slackbot .act-send { display: none; }
+
+  .send-split { position: relative; width: 61px; height: 36px; }
+  .send-split img { display: block; width: 61px; height: 36px; pointer-events: none; user-select: none; }
+  /* scoped to beat the equal-specificity [data-tip]{position:relative} tooltip rule */
+  .send-split .hot {
+    position: absolute; top: 4px; height: 28px;
+    border: none; background: transparent; cursor: pointer; transition: background-color 0.1s ease;
+  }
+  .hot.primary { left: 4px;  width: 32px; border-radius: var(--radius-btn) 0 0 var(--radius-btn); }
+  .hot.chevron { left: 36px; width: 23px; border-radius: 0 var(--radius-btn) var(--radius-btn) 0; }
+  .send-split.green .hot:hover { background: rgba(255,255,255,0.14); }
+  .send-split:not(.green) .hot:hover { background: rgba(29,28,29,0.06); }
+
+  .start-btn { display: block; padding: 0; border: none; background: transparent; cursor: pointer; }
+  .start-btn img { display: block; width: 64px; height: 36px; pointer-events: none; user-select: none; }
+
+  /* tooltip */
+  [data-tip] { position: relative; }
+  [data-tip]::after {
+    content: attr(data-tip);
+    position: absolute; bottom: calc(100% + 8px); left: 50%;
+    transform: translateX(-50%) translateY(2px);
+    background: var(--c-ink); color: #fff; font-size: 12px; line-height: 1;
+    /* system stack so 600 renders as true semibold (Lato has no 600 weight) */
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-weight: 600;
+    white-space: nowrap; padding: 6px 8px; border-radius: 6px;
+    opacity: 0; pointer-events: none; transition: opacity 0.1s ease, transform 0.1s ease; z-index: 60;
+  }
+  [data-tip]:hover::after { opacity: 1; transform: translateX(-50%) translateY(0); transition-delay: 0.35s; }
+
+  /* toast */
+  .toast {
+    position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(8px);
+    background: var(--c-ink); color: #fff; font-size: 13px; font-weight: 700;
+    padding: 10px 16px; border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+    opacity: 0; pointer-events: none; transition: opacity 0.18s ease, transform 0.18s ease; z-index: 100; max-width: 80vw;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="message-box is-empty" id="box">
+      <div class="message-text-box">
+        <div class="editor" id="editor" contenteditable="true" aria-label="Message"></div>
+        <div class="placeholder" aria-hidden="true">
+          <span class="ph ph-channel">Message in #engineering...</span>
+          <span class="ph ph-slackbot">Give Slackbot something to work on...</span>
+        </div>
+      </div>
+
+      <div class="footer">
+        <div class="footer-left">
+          <div class="attach-wrap">
+            <button class="icon-btn attach-btn" data-tip="More"><img src="icons/attach.svg" alt=""></button>
+          </div>
+          <div class="btn-group">
+            <button class="icon-btn" id="btnEmoji" data-tip="Emoji"><img src="icons/emoji.svg" alt=""></button>
+            <div class="divider"><span></span></div>
+            <button class="icon-btn" id="btnMention" data-tip="Mention someone"><img src="icons/mention.svg" alt=""></button>
+            <button class="icon-btn" data-tip="Shortcuts"><img src="icons/format.svg" alt=""></button>
+            <div class="divider"><span></span></div>
+            <!-- Slackbot toggle -->
+            <button class="icon-btn" id="btnSlackbot" data-tip="Slackbot &nbsp;⌃⌘S">
+              <img class="app-grey"  src="icons/app-grey.svg" alt="">
+              <img class="app-color" src="icons/app.svg" alt="">
+              <video class="app-anim" src="assets/slackbot.webm" muted playsinline preload="auto"></video>
+            </button>
+            <!-- Mode selector -->
+            <div class="mode-wrap">
+              <button class="mode-pill" id="modePill"><span class="mode-label">Auto</span><img class="mode-chev" src="icons/chevron.svg" alt=""></button>
+              <div class="mode-menu" id="modeMenu">
+                <button class="mode-item" data-short="Plan"><img class="mode-ic" src="icons/list.svg" alt=""><span><span class="mode-title">Plan Mode</span><span class="mode-desc">Researches and recommends next steps</span></span></button>
+                <button class="mode-item" data-short="Ask First"><img class="mode-ic" src="icons/hand.svg" alt=""><span><span class="mode-title">Ask First Mode</span><span class="mode-desc">Prepares the work, then asks before acting</span></span></button>
+                <button class="mode-item is-selected" data-short="Auto"><img class="mode-ic" src="icons/auto.svg" alt=""><span><span class="mode-title">Auto Mode</span><span class="mode-desc">Takes approved actions and reports back</span></span></button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="footer-right">
+          <!-- empty: mic + chevron -->
+          <div class="act-audio">
+            <div class="send-split"><img src="icons/send-empty.svg" alt="">
+              <button class="hot primary" id="btnAudio" data-tip="Record audio clip"></button>
+              <button class="hot chevron" id="btnAudioOpts" data-tip="More"></button>
+            </div>
+          </div>
+          <!-- channel + text: green send -->
+          <div class="act-send">
+            <div class="send-split green"><img src="icons/send-active.svg" alt="">
+              <button class="hot primary" id="btnSend" data-tip="Send now"></button>
+              <button class="hot chevron" id="btnSendOpts" data-tip="More send options"></button>
+            </div>
+          </div>
+          <!-- slackbot + text: purple Start -->
+          <div class="act-start">
+            <button class="start-btn" id="btnStart" data-tip="Start"><img src="icons/start-active.svg" alt=""></button>
+          </div>
+        </div>
+      </div>
+      <div class="sb-ring" aria-hidden="true"><div class="sb-ring-spin"></div></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+  // Activate the self-hosted Lato Semibold (used by mode-menu titles) up front,
+  // so it's ready before the dropdown opens (no flash of fallback).
+  if (document.fonts && document.fonts.load) document.fonts.load("600 15px 'Lato'").catch(() => {});
+
+  const box     = document.getElementById('box');
+  const editor  = document.getElementById('editor');
+  const toast   = document.getElementById('toast');
+
+  let toastTimer;
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove('show'), 2400);
+  }
+
+  function refresh() {
+    const empty = editor.textContent.trim() === '';
+    box.classList.toggle('is-empty', empty);
+    box.classList.toggle('has-text', !empty);
+  }
+  editor.addEventListener('input', refresh);
+  editor.addEventListener('focus', () => box.classList.add('is-focused'));
+  editor.addEventListener('blur',  () => box.classList.remove('is-focused'));
+
+  // --- Slackbot mode toggle (the app icon) ---
+  const sbAnim = document.querySelector('.app-anim');
+  function playSlackbotAnim() {
+    if (!sbAnim) return;
+    sbAnim.classList.add('playing');
+    try { sbAnim.currentTime = 0; const p = sbAnim.play(); if (p && p.catch) p.catch(() => {}); } catch (e) {}
+  }
+  if (sbAnim) sbAnim.addEventListener('ended', () => sbAnim.classList.remove('playing'));
+
+  function triggerRing() {
+    box.classList.remove('sb-animate');
+    void box.offsetWidth;               // reflow so the animation restarts
+    box.classList.add('sb-animate');
+  }
+  box.addEventListener('animationend', (e) => {
+    // sbFade is the longer of the two animations — wait for it so the gradual
+    // fade-out isn't cut short, then clean up (transform reset is invisible at opacity 0).
+    if (e.animationName === 'sbFade') box.classList.remove('sb-animate');
+  });
+
+  function setSlackbot(on) {
+    const was = box.classList.contains('slackbot');
+    box.classList.toggle('slackbot', on);
+    editor.setAttribute('aria-label', on ? 'Give Slackbot something to work on' : 'Message');
+    if (on && !was) { playSlackbotAnim(); triggerRing(); }
+    if (!on) { closeMenu(); box.classList.remove('sb-animate'); if (sbAnim) { sbAnim.pause(); sbAnim.classList.remove('playing'); } }
+  }
+  document.getElementById('btnSlackbot').addEventListener('click', () => {
+    setSlackbot(!box.classList.contains('slackbot'));
+  });
+  // ⌃⌘S shortcut
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey && e.metaKey) && (e.key === 's' || e.key === 'S')) {
+      e.preventDefault();
+      setSlackbot(!box.classList.contains('slackbot'));
+    }
+  });
+
+  // --- Auto mode dropdown ---
+  const modePill = document.getElementById('modePill');
+  const modeMenu = document.getElementById('modeMenu');
+  function closeMenu() { modeMenu.classList.remove('open'); modePill.classList.remove('open'); }
+  modePill.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const willOpen = !modeMenu.classList.contains('open');
+    modeMenu.classList.toggle('open', willOpen);
+    modePill.classList.toggle('open', willOpen);
+  });
+  modeMenu.querySelectorAll('.mode-item').forEach((item) => {
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      modeMenu.querySelectorAll('.mode-item').forEach((x) => x.classList.remove('is-selected'));
+      item.classList.add('is-selected');
+      modePill.querySelector('.mode-label').textContent = item.dataset.short;
+      closeMenu();
+    });
+  });
+  document.addEventListener('click', closeMenu);
+
+  // --- toolbar inserts ---
+  function insert(str) { editor.focus(); document.execCommand('insertText', false, str); refresh(); }
+  document.getElementById('btnEmoji').addEventListener('click',   () => insert('🙂'));
+  document.getElementById('btnMention').addEventListener('click', () => insert('@'));
+
+  // --- actions ---
+  document.getElementById('btnAudio').addEventListener('click', () => showToast('🎙  Recording audio clip…'));
+  document.getElementById('btnSend').addEventListener('click', () => {
+    showToast('Sent to #engineering: “' + editor.textContent.trim() + '”');
+    editor.innerHTML = ''; refresh(); editor.focus();
+  });
+  document.getElementById('btnStart').addEventListener('click', () => {
+    const mode = modePill.querySelector('.mode-label').textContent;
+    showToast('✦  Slackbot started — ' + mode + ' mode');
+    editor.innerHTML = ''; refresh(); editor.focus();
+  });
+  document.getElementById('btnAudioOpts').addEventListener('click', () => showToast('▾  More'));
+  document.getElementById('btnSendOpts').addEventListener('click',  () => showToast('▾  Schedule / send options'));
+
+  editor.focus();
+  refresh();
+</script>
+</body>
+</html>
