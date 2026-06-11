@@ -81,7 +81,8 @@
      angle (no snap on cleanup). */
   .message-box.sb-animate .sb-ring { animation: sbFade 2.3s cubic-bezier(0.33, 0, 0.4, 1) forwards; }
   @keyframes sbFade {
-    0% { opacity: 0; } 8% { opacity: 0.50; } 38% { opacity: 0.50; }
+    0% { opacity: 0; } 8% { opacity: 0.60; } 22% { opacity: 0.60; }  /* brief brighter flash */
+    38% { opacity: 0.50; }
     62% { opacity: 0.33; } 82% { opacity: 0.16; } 100% { opacity: 0; }
   }
   /* a large conic disc centred on the box, spun by transform — only the hue
@@ -126,7 +127,9 @@
     border-bottom-left-radius: var(--radius-box); border-bottom-right-radius: var(--radius-box);
   }
   .footer-left { display: flex; align-items: center; gap: 2px; }
-  .attach-wrap { display: flex; align-items: center; padding-right: 6px; }
+  /* padding-right 4 (not 6) absorbs the plus button's +2px shift so the rest
+     of the toolbar stays at its mock positions */
+  .attach-wrap { display: flex; align-items: center; padding-right: 4px; }
   .btn-group   { display: flex; align-items: center; gap: 4px; padding: 2px 0; }
 
   .icon-btn {
@@ -138,8 +141,10 @@
   .icon-btn img { display: block; width: 28px; height: 28px; pointer-events: none; }
   .icon-btn:hover  { background: var(--c-fill-06); }
   .icon-btn:active { background: var(--c-fill-10); }
-  .attach-btn { width: 24px; height: 24px; border-radius: 100px; }
+  .attach-btn { width: 24px; height: 24px; border-radius: 100px; margin-left: 2px; cursor: pointer; }
   .attach-btn img { width: 24px; height: 24px; }
+  /* no hover/active treatment on the plus — the pill bg is baked into its svg */
+  .attach-btn:hover, .attach-btn:active { background: transparent; }
 
   .divider { display: flex; align-items: center; padding: 2px 4px; }
   .divider span { display: block; width: 1px; height: 20px; background: var(--c-border-13); }
@@ -166,7 +171,9 @@
   .mode-wrap { position: relative; display: flex; align-items: center; }
   .mode-pill {
     display: flex; align-items: center; gap: 2px;
-    height: 26px; padding: 0 5px 0 4px;       /* mock: pill 60×26 at x=193 */
+    /* mock: pill 60×26 at x=193; hover bg extended 2px left (margin offsets the
+       wider padding so the label stays put) */
+    height: 26px; padding: 0 5px 0 6px; margin-left: -2px;
     border: none; background: transparent; border-radius: 8px; cursor: pointer;
     font-family: var(--font); font-size: 15px; color: var(--c-text-70);
     /* collapsed by default; slides + fades + expands in when Slackbot turns on */
@@ -227,7 +234,13 @@
   .send-split:not(.green) .hot:hover { background: rgba(29,28,29,0.06); }
 
   .start-btn { display: block; padding: 0; border: none; background: transparent; cursor: pointer; }
-  .start-btn img { display: block; width: 64px; height: 36px; pointer-events: none; user-select: none; }
+  .start-btn img {
+    display: block; width: 64px; height: 36px; pointer-events: none; user-select: none;
+    transition: filter 0.12s ease;
+  }
+  /* hover: 5% darker fill + faint elevation (drop-shadow follows the purple
+     rect's alpha, not the img box) */
+  .start-btn:hover img { filter: brightness(0.95) drop-shadow(0 1px 3px rgba(0, 0, 0, 0.18)); }
 
   /* tooltip — geometry/colours from the reference SVG (Mention Dropdown-1):
      black pill 24px tall, r6, Lato bold 12, kbd part at 70% white,
@@ -246,15 +259,6 @@
   }
   #tooltip.show { opacity: 1; transform: translateY(0); transition-delay: 0.35s; }
   #tooltip .kbd { color: rgba(255, 255, 255, 0.7); margin-left: 5px; letter-spacing: 0.5px; font-size: 11px; }
-
-  /* toast */
-  .toast {
-    position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(8px);
-    background: var(--c-ink); color: #fff; font-size: 13px; font-weight: 700;
-    padding: 10px 16px; border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.2);
-    opacity: 0; pointer-events: none; transition: opacity 0.18s ease, transform 0.18s ease; z-index: 100; max-width: 80vw;
-  }
-  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 </style>
 </head>
 <body>
@@ -290,7 +294,7 @@
               <button class="mode-pill" id="modePill"><span class="mode-label">Auto</span><img class="mode-chev" src="icons/chevron.svg" alt=""></button>
               <div class="mode-menu" id="modeMenu">
                 <button class="mode-item" data-short="Plan"><img class="mode-ic" src="icons/list.svg" alt=""><span><span class="mode-title">Plan Mode</span><span class="mode-desc">Researches and recommends next steps</span></span></button>
-                <button class="mode-item" data-short="Ask First"><img class="mode-ic" src="icons/hand.svg" alt=""><span><span class="mode-title">Ask First Mode</span><span class="mode-desc">Prepares the work, then asks before acting</span></span></button>
+                <button class="mode-item" data-short="Ask"><img class="mode-ic" src="icons/hand.svg" alt=""><span><span class="mode-title">Ask First Mode</span><span class="mode-desc">Prepares the work, then asks before acting</span></span></button>
                 <button class="mode-item is-selected" data-short="Auto"><img class="mode-ic" src="icons/auto.svg" alt=""><span><span class="mode-title">Auto Mode</span><span class="mode-desc">Takes approved actions and reports back</span></span></button>
               </div>
             </div>
@@ -308,13 +312,13 @@
           <!-- channel + text: green send -->
           <div class="act-send">
             <div class="send-split green"><img src="icons/send-active.svg" alt="">
-              <button class="hot primary" id="btnSend" data-tip="Send now"></button>
-              <button class="hot chevron" id="btnSendOpts" data-tip="More send options"></button>
+              <button class="hot primary" id="btnSend" aria-label="Send now"></button>
+              <button class="hot chevron" id="btnSendOpts" aria-label="More send options"></button>
             </div>
           </div>
           <!-- slackbot + text: purple Start -->
           <div class="act-start">
-            <button class="start-btn" id="btnStart" data-tip="Start"><img src="icons/start-active.svg" alt=""></button>
+            <button class="start-btn" id="btnStart" aria-label="Start"><img src="icons/start-active.svg" alt=""></button>
           </div>
         </div>
       </div>
@@ -322,7 +326,6 @@
     </div>
   </div>
 
-  <div class="toast" id="toast"></div>
   <div id="tooltip" role="tooltip" aria-hidden="true"></div>
 
 <script>
@@ -332,7 +335,6 @@
 
   const box     = document.getElementById('box');
   const editor  = document.getElementById('editor');
-  const toast   = document.getElementById('toast');
 
   // --- tooltip (label + optional 70%-white keyboard shortcut) ---
   const tooltip = document.getElementById('tooltip');
@@ -354,14 +356,6 @@
     el.addEventListener('mouseleave', () => tooltip.classList.remove('show'));
     el.addEventListener('mousedown',  () => tooltip.classList.remove('show'));
   });
-
-  let toastTimer;
-  function showToast(msg) {
-    toast.textContent = msg;
-    toast.classList.add('show');
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toast.classList.remove('show'), 2400);
-  }
 
   function refresh() {
     const empty = editor.textContent.trim() === '';
@@ -437,18 +431,12 @@
   document.getElementById('btnMention').addEventListener('click', () => insert('@'));
 
   // --- actions ---
-  document.getElementById('btnAudio').addEventListener('click', () => showToast('🎙  Recording audio clip…'));
   document.getElementById('btnSend').addEventListener('click', () => {
-    showToast('Sent to #engineering: “' + editor.textContent.trim() + '”');
     editor.innerHTML = ''; refresh(); editor.focus();
   });
   document.getElementById('btnStart').addEventListener('click', () => {
-    const mode = modePill.querySelector('.mode-label').textContent;
-    showToast('✦  Slackbot started — ' + mode + ' mode');
     editor.innerHTML = ''; refresh(); editor.focus();
   });
-  document.getElementById('btnAudioOpts').addEventListener('click', () => showToast('▾  More'));
-  document.getElementById('btnSendOpts').addEventListener('click',  () => showToast('▾  Schedule / send options'));
 
   editor.focus();
   refresh();
