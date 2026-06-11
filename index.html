@@ -59,9 +59,13 @@
     border-radius: var(--radius-box);
     transition: border-color 0.12s ease, box-shadow 0.12s ease;
   }
-  .message-box.is-focused { border-color: var(--c-focus); box-shadow: 0 0 0 1px var(--c-focus); }
-  /* keep the focus ring out of the way while the Slack gradient border is shown */
-  .message-box.slackbot.is-focused { box-shadow: none; border-color: var(--c-border-13); }
+  /* selected state — outline darkens and reads as 2px (1px border + 1px ring) */
+  .message-box.is-focused {
+    border-color: rgba(29, 28, 29, 0.40);
+    box-shadow: 0 0 0 1px rgba(29, 28, 29, 0.40);
+  }
+  /* hand the border over to the rainbow only while it's sweeping */
+  .message-box.sb-animate.is-focused { box-shadow: none; border-color: var(--c-border-13); }
 
   /* ===== Slackbot: a faint Slack-colour gradient rotates around the outline
      (constant opacity — only the hue position moves), then returns to the
@@ -115,9 +119,27 @@
   }
   .ph-channel  { transform: translateY(-7px); }   /* hidden: parked above */
   .ph-slackbot { transform: translateY(7px); }     /* hidden: parked below */
+  .ph-working  { transform: translateY(7px); }     /* hidden: parked below */
   .message-box:not(.slackbot) .ph-channel  { opacity: 1; transform: none; }
-  .message-box.slackbot       .ph-slackbot { opacity: 1; transform: none; }
+  .message-box.slackbot:not(.sb-working) .ph-slackbot { opacity: 1; transform: none; }
   .message-box.has-text .ph { opacity: 0; }
+  /* "Slackbot is on it…" — Slack-gradient shimmer shown briefly after Start */
+  .ph-working {
+    font-weight: 700;
+    background: linear-gradient(90deg,
+      #36C4F0, #2EB57D, #EDB22E, #E01E59, #36C4F0, #2EB57D);
+    background-size: 250% 100%;
+    -webkit-background-clip: text; background-clip: text;
+    color: transparent; -webkit-text-fill-color: transparent;
+  }
+  .message-box.sb-working:not(.has-text) .ph-working {
+    opacity: 1; transform: none;
+    animation: phShimmer 1.6s linear infinite;
+  }
+  @keyframes phShimmer {
+    from { background-position: 0% 0; }
+    to   { background-position: -250% 0; }
+  }
   .mention { color: var(--c-mention); }
 
   /* footer */
@@ -269,6 +291,7 @@
         <div class="placeholder" aria-hidden="true">
           <span class="ph ph-channel">Message in #engineering...</span>
           <span class="ph ph-slackbot">Give Slackbot something to work on...</span>
+          <span class="ph ph-working">✦ Slackbot is on it...</span>
         </div>
       </div>
 
@@ -434,8 +457,17 @@
   document.getElementById('btnSend').addEventListener('click', () => {
     editor.innerHTML = ''; refresh(); editor.focus();
   });
+  // Start: stays in Slackbot mode, kicks off the agentic task with some delight —
+  // the rainbow ring sweeps the border, the Slackbot face animates, and a
+  // gradient-shimmer "Slackbot is on it..." status shows before settling back.
+  let workingTimer;
   document.getElementById('btnStart').addEventListener('click', () => {
     editor.innerHTML = ''; refresh(); editor.focus();
+    triggerRing();
+    playSlackbotAnim();
+    box.classList.add('sb-working');
+    clearTimeout(workingTimer);
+    workingTimer = setTimeout(() => box.classList.remove('sb-working'), 2600);
   });
 
   editor.focus();
